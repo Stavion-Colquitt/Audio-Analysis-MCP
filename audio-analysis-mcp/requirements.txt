@@ -1,6 +1,0 @@
-# Core — required for the server to run
-mcp
-sounddevice
-librosa
-scipy
-numpy

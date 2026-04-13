@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "audio-analysis": {
-      "command": "python",
-      "args": ["/absolute/path/to/server.py"]
-    }
-  }
-}
