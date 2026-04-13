@@ -1,0 +1,6 @@
+mcp
+sounddevice
+librosa
+scipy
+numpy
+qdrant-client
