@@ -7,5 +7,6 @@ qdrant-client
 openai-whisper
 soundfile
 
-# Polyphonic instrument audio analysis (analyze_instrument_audio)
+# Polyphonic instrument audio analysis (analyze_instrument_audio, start_polyphonic_listener)
 basic-pitch
+soundfile

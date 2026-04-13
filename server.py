@@ -3160,6 +3160,162 @@ def get_auto_sync_status() -> str:
 
 
 
+
+# ─────────────────────────────────────────
+# Live polyphonic instrument listener
+# Windowed Basic-Pitch for real-time chord/harmony capture
+# ─────────────────────────────────────────
+
+_poly_listener_thread = None
+_poly_listener_running = False
+
+
+def _poly_listener_loop(device_index, track_name, section_getter, window_seconds):
+    global _poly_listener_running
+    import tempfile, os
+    try:
+        from basic_pitch.inference import predict
+        from basic_pitch import ICASSP_2022_MODEL_PATH
+        import soundfile as sf_module
+    except ImportError as e:
+        logger.error(f"Polyphonic listener requires basic-pitch and soundfile: {e}")
+        _poly_listener_running = False
+        return
+
+    logger.info(f"Polyphonic listener started on device {device_index}, track: {track_name}")
+
+    while _poly_listener_running:
+        try:
+            audio = sd.rec(
+                int(window_seconds * SAMPLE_RATE),
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                device=device_index
+            )
+            sd.wait()
+
+            mono = audio.flatten().astype("float32")
+            if float(np.sqrt(np.mean(mono ** 2))) < 0.003:
+                continue
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_path = tmp.name
+            sf_module.write(tmp_path, mono, SAMPLE_RATE)
+            _, _, note_events = predict(tmp_path, ICASSP_2022_MODEL_PATH)
+            os.unlink(tmp_path)
+
+            if not note_events:
+                continue
+
+            note_names_list = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
+            window_timestamp = time.time()
+            notes = []
+            for event in note_events:
+                start_t, end_t, pitch, velocity, _ = event
+                pc = int(pitch) % 12
+                notes.append({
+                    "midi_pitch": int(pitch),
+                    "pitch_class": pc,
+                    "note_name": note_names_list[pc],
+                    "start_time": round(float(start_t), 4),
+                    "end_time": round(float(end_t), 4),
+                    "duration": round(float(end_t) - float(start_t), 4),
+                    "velocity": int(velocity * 127),
+                    "captured_at": window_timestamp,
+                })
+
+            current_section = section_getter()
+            if _session_context and notes:
+                sections = _session_context.get("structure", {}).get("sections", [])
+                if current_section < len(sections):
+                    performed = sections[current_section].get("performed", {})
+                    instruments = performed.get("instrument_notes", {})
+                    existing = instruments.get(track_name, [])
+                    recent_pitches = {
+                        n["midi_pitch"] for n in existing
+                        if window_timestamp - n.get("captured_at", 0) < 3.0
+                    }
+                    new_notes = [n for n in notes if n["midi_pitch"] not in recent_pitches]
+                    existing.extend(new_notes)
+                    instruments[track_name] = existing
+                    performed["instrument_notes"] = instruments
+                    sections[current_section]["performed"] = performed
+                    _session_context["structure"]["sections"] = sections
+                    if new_notes:
+                        pitches = [n["note_name"] for n in new_notes]
+                        logger.info(f"Poly [{current_section}] {track_name}: {pitches[:8]}")
+
+        except Exception as e:
+            logger.error(f"Polyphonic listener error: {e}")
+            time.sleep(1)
+
+
+@mcp.tool()
+def start_polyphonic_listener(
+    device_index: int,
+    track_name: str = "instrument",
+    section_index: int = 0,
+    window_seconds: float = 2.5
+) -> str:
+    """
+    Start a live polyphonic audio listener that detects chords and harmonies
+    in real time using Basic-Pitch. Works for piano, guitar, violin, or any
+    instrument playing multiple notes simultaneously.
+
+    There is inherent latency equal to window_seconds because Basic-Pitch
+    processes complete audio windows. Default 2.5 seconds balances accuracy
+    against latency. For instruments with MIDI output, routing through Ableton
+    as a MIDI track and reading it via the MCP connection is more accurate
+    and has zero latency — use this only when MIDI is not available.
+
+    Detected notes are written to the session context performed layer under
+    instrument_notes[track_name]. Language model and voice synthesis model
+    can query Qdrant to see harmonic context for this instrument.
+
+    Requires: pip install basic-pitch soundfile
+
+    Parameters:
+    - device_index: Audio device index (use list_audio_devices to find it)
+    - track_name: Label for this instrument e.g. 'piano', 'guitar', 'strings'
+    - section_index: Which section is currently being recorded (0-based)
+    - window_seconds: Audio window size. Smaller = more responsive, less accurate.
+      Larger = better chord detection, more latency. 2-4 seconds recommended.
+    """
+    global _poly_listener_thread, _poly_listener_running, _current_section_index
+
+    if _poly_listener_running:
+        return "Polyphonic listener already running. Call stop_polyphonic_listener first."
+    if not _session_context:
+        return "No session context. Run build_session_context first."
+
+    _current_section_index = section_index
+    _poly_listener_running = True
+    _poly_listener_thread = _threading.Thread(
+        target=_poly_listener_loop,
+        args=(device_index, track_name, lambda: _current_section_index, window_seconds),
+        daemon=True
+    )
+    _poly_listener_thread.start()
+
+    return json.dumps({
+        "started": True,
+        "device_index": device_index,
+        "track_name": track_name,
+        "section_index": section_index,
+        "window_seconds": window_seconds,
+        "latency_note": f"~{window_seconds}s latency per window. Use Ableton MIDI routing for zero-latency polyphonic capture."
+    }, indent=2)
+
+
+@mcp.tool()
+def stop_polyphonic_listener() -> str:
+    """Stop the live polyphonic instrument listener."""
+    global _poly_listener_running
+    _poly_listener_running = False
+    return "Polyphonic listener stopped."
+
+
 if __name__ == "__main__":
     logger.info("Audio Analysis MCP Server starting...")
     mcp.run()

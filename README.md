@@ -20,7 +20,7 @@ pip install -r requirements-optional.txt
 |---|---|
 | `qdrant-client` | Vector database write tools, auto-sync |
 | `openai-whisper` + `soundfile` | Live vocal transcription (`start_stt_listener`) |
-| `basic-pitch` | Polyphonic instrument audio analysis |
+| `basic-pitch` + `soundfile` | Polyphonic instrument analysis (`analyze_instrument_audio`, `start_polyphonic_listener`)
 
 ## Claude Desktop setup
 
@@ -113,7 +113,9 @@ The server starts and waits for MCP client connections.
 | `stop_stt_listener` | Stop STT listener |
 | `start_pitch_listener(device_index, section_index)` | Start pyin vocal pitch tracking. Writes detected notes to the performed layer. |
 | `stop_pitch_listener` | Stop pitch listener |
-| `analyze_instrument_audio(file_path, track_name, section_index)` | Run Basic-Pitch on a polyphonic audio file. Extracts note events and writes to the performed layer. Requires `basic-pitch`. |
+| `analyze_instrument_audio(file_path, track_name, section_index)` | Run Basic-Pitch on a saved polyphonic audio file (WAV, MP3, FLAC). Extracts chord and note events and writes to the performed layer. Use this for recorded takes. Requires `basic-pitch` and `soundfile`. |
+| `start_polyphonic_listener(device_index, track_name, section_index, window_seconds)` | Live polyphonic chord and harmony detection via Basic-Pitch. Works for piano, guitar, violin, or any instrument playing multiple notes simultaneously. Captures audio in windows (default 2.5s) and writes detected notes to the performed layer in near-real time. There is inherent latency equal to the window size — use Ableton MIDI routing when the instrument can output MIDI. Requires `basic-pitch` and `soundfile`. |
+| `stop_polyphonic_listener` | Stop the live polyphonic listener. |
 | `get_performed_context(section_index)` | View what has been captured — lyrics, notes sung, instrument note data. Pass -1 for all sections. |
 
 ### Vector database (Qdrant)
