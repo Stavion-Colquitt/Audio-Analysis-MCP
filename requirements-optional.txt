@@ -1,0 +1,11 @@
+# Optional — install what you need
+
+# Qdrant vector database integration (write_context_to_qdrant, auto-sync)
+qdrant-client
+
+# Live vocal transcription (start_stt_listener)
+openai-whisper
+soundfile
+
+# Polyphonic instrument audio analysis (analyze_instrument_audio)
+basic-pitch
